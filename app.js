@@ -3,10 +3,8 @@ var app = express();
 var bodyParser = require("body-parser");
 var mongoose = require("mongoose");
 var port = 3000;
-const md5 = require("md5");
-
-console.log(md5("hello world"));
-
+var bcrypt = require("bcrypt");
+var saltRounds = 11;
 // mongoose connect // app.liste
 
 mongoose.connect("mongodb://localhost:27017/fetDB").then(() => {
@@ -77,21 +75,26 @@ app.get("/:category?", (req, res) => {
 app.post("/auth/signup", (req, res) => {
   var name = req.body.name;
   var email = req.body.email;
-  var password = md5(req.body.password);
-  var user = new User({
-    name,
-    email,
-    password,
+  var password = req.body.password;
+
+  bcrypt.hash(password, saltRounds, (err, hash) => {
+    if (!err) {
+      var user = new User({
+        name,
+        email,
+        password: hash,
+      });
+      user
+        .save()
+        .then((savedUser) => {
+          console.log(savedUser);
+          res.redirect("/");
+        })
+        .catch((err) => {
+          console.log(err);
+        });
+    }
   });
-  user
-    .save()
-    .then((savedUser) => {
-      console.log(savedUser);
-      res.redirect("/");
-    })
-    .catch((err) => {
-      console.log(err);
-    });
 });
 app.post("/", (req, res) => {
   var name = req.body.name;
@@ -114,9 +117,19 @@ app.post("/", (req, res) => {
 });
 app.post("/auth/login", (req, res) => {
   User.findOne({ email: req.body.email }).then((foundUser) => {
-    console.log(`Found Users : ${foundUser}`);
-    if (foundUser.password == md5(req.body.password)) {
-      res.send("Signed In");
+    console.log(foundUser);
+    if (foundUser) {
+      bcrypt.compare(req.body.password, foundUser.password, (err, result) => {
+        if (!err) {
+          if (result) {
+            res.send("Logged In");
+          } else {
+            res.send("Incorrect Password");
+          }
+        }
+      });
+    } else {
+      res.send("No user found");
     }
   });
 });
