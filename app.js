@@ -3,7 +3,9 @@ var app = express();
 var bodyParser = require("body-parser");
 var mongoose = require("mongoose");
 var port = 3000;
-var encrypt = require("mongoose-encryption");
+const md5 = require("md5");
+
+console.log(md5("hello world"));
 
 // mongoose connect // app.liste
 
@@ -36,11 +38,6 @@ var userSchema = new mongoose.Schema({
   name: { type: String, required: true, minLength: 3 },
   email: { type: String, required: true, minLength: 8, unique: true },
   password: { type: String, required: true, minLength: 8 },
-});
-
-userSchema.plugin(encrypt, {
-  secret: "helloworld",
-  encryptedFields: ["password"],
 });
 
 // model
@@ -80,7 +77,7 @@ app.get("/:category?", (req, res) => {
 app.post("/auth/signup", (req, res) => {
   var name = req.body.name;
   var email = req.body.email;
-  var password = req.body.password;
+  var password = md5(req.body.password);
   var user = new User({
     name,
     email,
@@ -118,7 +115,7 @@ app.post("/", (req, res) => {
 app.post("/auth/login", (req, res) => {
   User.findOne({ email: req.body.email }).then((foundUser) => {
     console.log(`Found Users : ${foundUser}`);
-    if (foundUser.password == req.body.password) {
+    if (foundUser.password == md5(req.body.password)) {
       res.send("Signed In");
     }
   });
