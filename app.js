@@ -5,6 +5,8 @@ var mongoose = require("mongoose");
 var port = 3000;
 var bcrypt = require("bcrypt");
 var saltRounds = 11;
+
+var session = require("express-session");
 // mongoose connect // app.liste
 
 mongoose.connect("mongodb://localhost:27017/fetDB").then(() => {
@@ -14,6 +16,17 @@ mongoose.connect("mongodb://localhost:27017/fetDB").then(() => {
   });
 });
 // middleware
+
+app.use(
+  session({
+    secret: "hello world",
+    saveUninitialized: true,
+    resave: false,
+    cookie: {
+      maxAge: 24 * 60 * 60 * 1000,
+    },
+  })
+);
 
 app.use(
   bodyParser.urlencoded({
@@ -43,6 +56,11 @@ var userSchema = new mongoose.Schema({
 const Expense = mongoose.model("expense", expenseSchema);
 const User = mongoose.model("user", userSchema);
 
+app.use((req, res, next) => {
+  console.log(req.session);
+  next();
+});
+
 // routes
 
 app.get("/auth/signup", (req, res) => [res.render("signup.ejs")]);
@@ -54,6 +72,10 @@ app.get("/auth/login", (req, res) => {
 app.get("/:category?", (req, res) => {
   var category = req.params.category;
   var filter = category ? { category: category } : {};
+
+  if (req.session.userId) {
+    console.log("user found", req.session.userId);
+  }
 
   Expense.find(filter)
     .then((foundExpenses) => {
@@ -88,6 +110,7 @@ app.post("/auth/signup", (req, res) => {
         .save()
         .then((savedUser) => {
           console.log(savedUser);
+          req.session.userId = savedUser._id;
           res.redirect("/");
         })
         .catch((err) => {
