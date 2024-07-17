@@ -1,9 +1,15 @@
+require("dotenv").config();
+
 var express = require("express");
 var app = express();
 var bodyParser = require("body-parser");
 var mongoose = require("mongoose");
 var port = 3000;
 var bcrypt = require("bcrypt");
+var passport = require("passport");
+const Strategy = require("passport-local").Strategy;
+const session = require("express-session");
+
 var saltRounds = 11;
 
 var session = require("express-session");
@@ -37,6 +43,9 @@ app.use(
 app.use(express.static("public"));
 
 app.set("view engine", "ejs");
+
+app.use(passport.initialize());
+app.use(passport.session());
 
 // schema
 
@@ -167,4 +176,42 @@ app.get("/delete/:id", (req, res) => {
     .catch((err) => {
       console.log(err);
     });
+});
+
+passport.use(
+  new Strategy(async function Verify(username, password, cb) {
+    try {
+      const user = await User.findOne({ email: username });
+      if (user) {
+        bcrypt.compare(passport, user.password, (err, isValid) => {
+          if (err) {
+            console.error("Error Comparing Passwords : ", err);
+            return cb(err);
+          }
+          if (isValid) {
+            return cb(null, user);
+          } else {
+            return cb(null, false, { message: "Incorrect Password." });
+          }
+        });
+      } else {
+        return cb(null, false, { message: "User Not Found" });
+      }
+    } catch (err) {
+      return cb(err);
+    }
+  })
+);
+
+passport.serializeUser(async (user, cb) => {
+  cb(null, user.id);
+});
+
+passport.deserializeUser(async (id, cb) => {
+  try {
+    const user = await User.findById(id);
+    cb(null, user);
+  } catch (err) {
+    cb(err);
+  }
 });
