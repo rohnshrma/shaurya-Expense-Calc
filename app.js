@@ -12,7 +12,6 @@ const session = require("express-session");
 
 var saltRounds = 11;
 
-var session = require("express-session");
 // mongoose connect // app.liste
 
 mongoose.connect("mongodb://localhost:27017/fetDB").then(() => {
@@ -22,6 +21,11 @@ mongoose.connect("mongodb://localhost:27017/fetDB").then(() => {
   });
 });
 // middleware
+
+app.use((req, res, next) => {
+  console.log(req.session);
+  next();
+});
 
 app.use(
   session({
@@ -79,54 +83,66 @@ app.get("/auth/login", (req, res) => {
 });
 
 app.get("/:category?", (req, res) => {
-  var category = req.params.category;
-  var filter = category ? { category: category } : {};
+  if (req.isAuthenticated()) {
+    var category = req.params.category;
+    var filter = category ? { category: category } : {};
 
-  if (req.session.userId) {
-    console.log("user found", req.session.userId);
+    if (req.session.userId) {
+      console.log("user found", req.session.userId);
+    }
+
+    Expense.find(filter)
+      .then((foundExpenses) => {
+        if (foundExpenses.length > 0) {
+          console.log(foundExpenses);
+          res.render("index", {
+            data: foundExpenses,
+          });
+        } else {
+          res.render("index", {
+            data: "No expenses found",
+          });
+        }
+      })
+      .catch((err) => {
+        console.log(err);
+      });
+  } else {
+    res.redirect("/auth/login");
   }
-
-  Expense.find(filter)
-    .then((foundExpenses) => {
-      if (foundExpenses.length > 0) {
-        console.log(foundExpenses);
-        res.render("index", {
-          data: foundExpenses,
-        });
-      } else {
-        res.render("index", {
-          data: "No expenses found",
-        });
-      }
-    })
-    .catch((err) => {
-      console.log(err);
-    });
 });
-app.post("/auth/signup", (req, res) => {
+app.post("/auth/signup", async (req, res) => {
   var name = req.body.name;
   var email = req.body.email;
   var password = req.body.password;
 
-  bcrypt.hash(password, saltRounds, (err, hash) => {
-    if (!err) {
-      var user = new User({
-        name,
-        email,
-        password: hash,
+  try {
+    const exisitingUser = await User.findOne({ email: email });
+    if (exisitingUser) {
+      res.redirect("/login");
+    } else {
+      bcrypt.hash(password, saltRounds, async (err, hash) => {
+        if (err) {
+          console.error("Error hashing password", err);
+        } else {
+          const newUser = new User({
+            name: name,
+            email: email,
+            password: hash,
+          });
+          await newUser.save();
+          req.login(newUser, (err) => {
+            if (err) {
+              console.error("Error logging in :", err);
+            }
+            res.redirect("/");
+          });
+        }
       });
-      user
-        .save()
-        .then((savedUser) => {
-          console.log(savedUser);
-          req.session.userId = savedUser._id;
-          res.redirect("/");
-        })
-        .catch((err) => {
-          console.log(err);
-        });
     }
-  });
+  } catch (err) {
+    console.log(err);
+  }
 });
 app.post("/", (req, res) => {
   var name = req.body.name;
@@ -147,23 +163,42 @@ app.post("/", (req, res) => {
       console.log(err);
     });
 });
-app.post("/auth/login", (req, res) => {
-  User.findOne({ email: req.body.email }).then((foundUser) => {
-    console.log(foundUser);
-    if (foundUser) {
-      bcrypt.compare(req.body.password, foundUser.password, (err, result) => {
-        if (!err) {
-          if (result) {
-            res.send("Logged In");
-          } else {
-            res.send("Incorrect Password");
-          }
-        }
-      });
-    } else {
-      res.send("No user found");
+
+app.get("/logout", (req, res) => {
+  console.log("logging out");
+  req.logout((err) => {
+    if (err) {
+      return next(err);
     }
+    res.redirect("/auth/login");
   });
+});
+
+app.post("/auth/login", (req, res) => {
+  // User.findOne({ email: req.body.email }).then((foundUser) => {
+  //   console.log(foundUser);
+  //   if (foundUser) {
+  //     bcrypt.compare(req.body.password, foundUser.password, (err, result) => {
+  //       if (!err) {
+  //         if (result) {
+  //           res.send("Logged In");
+  //         } else {
+  //           res.send("Incorrect Password");
+  //         }
+  //       }
+  //     });
+  //   } else {
+  //     res.send("No user found");
+  //   }
+  // });
+
+  app.post(
+    "/login",
+    passport.authenticate("local", {
+      successRedirect: "/",
+      failureRedirect: "/login",
+    })
+  );
 });
 
 app.get("/delete/:id", (req, res) => {
