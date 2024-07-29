@@ -1,171 +1,114 @@
 require("dotenv").config();
-
-var express = require("express");
-var app = express();
-var bodyParser = require("body-parser");
-var mongoose = require("mongoose");
-var port = 3000;
-var bcrypt = require("bcrypt");
-var passport = require("passport");
-const Strategy = require("passport-local").Strategy;
+const express = require("express");
+const bodyParser = require("body-parser");
+const mongoose = require("mongoose");
+const bcrypt = require("bcrypt");
+const passport = require("passport");
+const LocalStrategy = require("passport-local").Strategy;
 const session = require("express-session");
 
-var saltRounds = 11;
+const app = express();
+const port = 3000;
 
-// mongoose connect // app.liste
+const saltRounds = 11;
 
-mongoose.connect("mongodb://localhost:27017/fetDB").then(() => {
-  console.log("Connected To DB");
-  app.listen(port, () => {
-    console.log(`Server Started On Port ${port}`);
-  });
-});
-// middleware
+// Mongoose connect and start server
+mongoose
+  .connect("mongodb://localhost:27017/fetDB")
+  .then(() => {
+    console.log("Connected To DB");
+    app.listen(port, () => {
+      console.log(`Server Started On Port ${port}`);
+    });
+  })
+  .catch((err) => console.error("Error connecting to DB", err));
 
-app.use((req, res, next) => {
-  console.log(req.session);
-  next();
-});
-
+// Middleware
 app.use(
   session({
     secret: "hello world",
     saveUninitialized: true,
     resave: false,
-    cookie: {
-      maxAge: 24 * 60 * 60 * 1000,
-    },
+    cookie: { maxAge: 24 * 60 * 60 * 1000 },
   })
 );
 
-app.use(
-  bodyParser.urlencoded({
-    extended: true,
-  })
-);
-
+app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
-
 app.set("view engine", "ejs");
 
 app.use(passport.initialize());
 app.use(passport.session());
 
-// schema
-
-var expenseSchema = new mongoose.Schema({
+// Schemas and Models
+const expenseSchema = new mongoose.Schema({
   name: { type: String, required: true, minLength: 3 },
   amount: { type: Number, required: true },
   category: { type: String, required: true },
 });
-var userSchema = new mongoose.Schema({
+
+const userSchema = new mongoose.Schema({
   name: { type: String, required: true, minLength: 3 },
   email: { type: String, required: true, minLength: 8, unique: true },
   password: { type: String, required: true, minLength: 8 },
 });
 
-// model
-
 const Expense = mongoose.model("expense", expenseSchema);
 const User = mongoose.model("user", userSchema);
 
-app.use((req, res, next) => {
-  console.log(req.session);
-  next();
+// Passport Local Strategy
+passport.use(
+  new LocalStrategy(
+    {
+      usernameField: "email",
+      passwordField: "password",
+    },
+    async (email, password, done) => {
+      console.log("Strategy running");
+      try {
+        const user = await User.findOne({ email });
+        if (!user) {
+          console.log("User not found");
+          return done(null, false, { message: "User Not Found" });
+        }
+        const isValid = await bcrypt.compare(password, user.password);
+        if (!isValid) {
+          console.log("Incorrect password");
+          return done(null, false, { message: "Incorrect Password" });
+        }
+        console.log("User authenticated");
+        return done(null, user);
+      } catch (err) {
+        return done(err);
+      }
+    }
+  )
+);
+
+passport.serializeUser((user, done) => {
+  done(null, user.id);
 });
 
-// routes
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await User.findById(id);
+    done(null, user);
+  } catch (err) {
+    done(err);
+  }
+});
 
-app.get("/auth/signup", (req, res) => [res.render("signup.ejs")]);
+// Routes
+app.get("/auth/signup", (req, res) => {
+  res.render("signup.ejs");
+});
 
 app.get("/auth/login", (req, res) => {
   res.render("login.ejs");
 });
 
-app.get("/:category?", (req, res) => {
-  if (req.isAuthenticated()) {
-    var category = req.params.category;
-    var filter = category ? { category: category } : {};
-
-    if (req.session.userId) {
-      console.log("user found", req.session.userId);
-    }
-
-    Expense.find(filter)
-      .then((foundExpenses) => {
-        if (foundExpenses.length > 0) {
-          console.log(foundExpenses);
-          res.render("index", {
-            data: foundExpenses,
-          });
-        } else {
-          res.render("index", {
-            data: "No expenses found",
-          });
-        }
-      })
-      .catch((err) => {
-        console.log(err);
-      });
-  } else {
-    res.redirect("/auth/login");
-  }
-});
-app.post("/auth/signup", async (req, res) => {
-  var name = req.body.name;
-  var email = req.body.email;
-  var password = req.body.password;
-
-  try {
-    const exisitingUser = await User.findOne({ email: email });
-    if (exisitingUser) {
-      res.redirect("/login");
-    } else {
-      bcrypt.hash(password, saltRounds, async (err, hash) => {
-        if (err) {
-          console.error("Error hashing password", err);
-        } else {
-          const newUser = new User({
-            name: name,
-            email: email,
-            password: hash,
-          });
-          await newUser.save();
-          req.login(newUser, (err) => {
-            if (err) {
-              console.error("Error logging in :", err);
-            }
-            res.redirect("/");
-          });
-        }
-      });
-    }
-  } catch (err) {
-    console.log(err);
-  }
-});
-app.post("/", (req, res) => {
-  var name = req.body.name;
-  var amount = req.body.amount;
-  var category = req.body.category;
-  var expense = new Expense({
-    name,
-    amount,
-    category,
-  });
-  expense
-    .save()
-    .then((savedExpense) => {
-      console.log(savedExpense);
-      res.redirect("/");
-    })
-    .catch((err) => {
-      console.log(err);
-    });
-});
-
-app.get("/logout", (req, res) => {
-  console.log("logging out");
+app.get("/logout", (req, res, next) => {
+  console.log("logout running");
   req.logout((err) => {
     if (err) {
       return next(err);
@@ -174,79 +117,61 @@ app.get("/logout", (req, res) => {
   });
 });
 
-app.post("/auth/login", (req, res) => {
-  // User.findOne({ email: req.body.email }).then((foundUser) => {
-  //   console.log(foundUser);
-  //   if (foundUser) {
-  //     bcrypt.compare(req.body.password, foundUser.password, (err, result) => {
-  //       if (!err) {
-  //         if (result) {
-  //           res.send("Logged In");
-  //         } else {
-  //           res.send("Incorrect Password");
-  //         }
-  //       }
-  //     });
-  //   } else {
-  //     res.send("No user found");
-  //   }
-  // });
+app.get("/:category?", (req, res) => {
+  if (req.isAuthenticated()) {
+    const category = req.params.category;
+    const filter = category ? { category } : {};
 
-  app.post(
-    "/login",
-    passport.authenticate("local", {
-      successRedirect: "/",
-      failureRedirect: "/login",
-    })
-  );
-});
-
-app.get("/delete/:id", (req, res) => {
-  var id = req.params.id;
-  Expense.findByIdAndDelete(id)
-    .then((deletedExpense) => {
-      console.log(deletedExpense);
-      res.redirect("/");
-    })
-    .catch((err) => {
-      console.log(err);
-    });
-});
-
-passport.use(
-  new Strategy(async function Verify(username, password, cb) {
-    try {
-      const user = await User.findOne({ email: username });
-      if (user) {
-        bcrypt.compare(passport, user.password, (err, isValid) => {
-          if (err) {
-            console.error("Error Comparing Passwords : ", err);
-            return cb(err);
-          }
-          if (isValid) {
-            return cb(null, user);
-          } else {
-            return cb(null, false, { message: "Incorrect Password." });
-          }
+    Expense.find(filter)
+      .then((foundExpenses) => {
+        res.render("index", {
+          data: foundExpenses.length > 0 ? foundExpenses : "No expenses found",
         });
-      } else {
-        return cb(null, false, { message: "User Not Found" });
-      }
-    } catch (err) {
-      return cb(err);
+      })
+      .catch((err) => console.error(err));
+  } else {
+    res.redirect("/auth/login");
+  }
+});
+
+app.post("/auth/signup", async (req, res) => {
+  const { name, email, password } = req.body;
+
+  try {
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.redirect("/auth/login");
     }
+
+    const hash = await bcrypt.hash(password, saltRounds);
+    const newUser = new User({ name, email, password: hash });
+    await newUser.save();
+    req.login(newUser, (err) => {
+      if (err) return console.error("Error logging in:", err);
+      res.redirect("/");
+    });
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+app.post(
+  "/auth/login",
+  passport.authenticate("local", {
+    successRedirect: "/",
+    failureRedirect: "/auth/login",
   })
 );
 
-passport.serializeUser(async (user, cb) => {
-  cb(null, user.id);
-});
+app.post("/", (req, res) => {
+  const { name, amount, category } = req.body;
+  const expense = new Expense({ name, amount, category });
 
-passport.deserializeUser(async (id, cb) => {
-  try {
-    const user = await User.findById(id);
-    cb(null, user);
-  } catch (err) {
-    cb(err);
-  }
+  expense
+    .save()
+    .then((savedExpense) => {
+      console.log(savedExpense);
+      res.redirect("/");
+    })
+    .catch((err) => console.error(err));
 });
